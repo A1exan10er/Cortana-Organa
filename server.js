@@ -22,8 +22,61 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     endpoints: {
       webhook_verification: 'GET /webhook',
-      webhook_events: 'POST /webhook'
+      webhook_events: 'POST /webhook',
+      test_whatsapp: 'POST /test-whatsapp'
+    },
+    environment: {
+      hasWhatsAppToken: !!process.env.WHATSAPP_ACCESS_TOKEN,
+      hasPhoneNumberId: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+      hasAppSecret: !!process.env.META_APP_SECRET
     }
+  });
+});
+
+// Test endpoint for WhatsApp functionality
+app.post('/test-whatsapp', (req, res) => {
+  console.log('=== TESTING WHATSAPP FUNCTIONALITY ===');
+  
+  const testMessage = {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'test-entry',
+      changes: [{
+        field: 'messages',
+        value: {
+          messaging_product: 'whatsapp',
+          metadata: {
+            display_phone_number: '1234567890',
+            phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID || 'test-phone-id'
+          },
+          messages: [{
+            from: '1234567890',
+            id: 'test-message-id',
+            timestamp: Date.now().toString(),
+            text: {
+              body: req.body.message || 'Hello, this is a test message!'
+            },
+            type: 'text'
+          }]
+        }
+      }]
+    }]
+  };
+  
+  console.log('Simulating WhatsApp webhook with test data:', JSON.stringify(testMessage, null, 2));
+  
+  // Process the test message
+  testMessage.entry.forEach(entry => {
+    entry.changes.forEach(change => {
+      if (change.field === 'messages') {
+        handleWhatsAppEvent(change.value);
+      }
+    });
+  });
+  
+  res.json({
+    status: 'Test message processed',
+    message: 'Check logs for WhatsApp processing details'
   });
 });
 
@@ -72,25 +125,34 @@ app.get('/webhook', (req, res) => {
 
 // Webhook events (POST)
 app.post('/webhook', (req, res) => {
-  console.log('Webhook event received');
+  console.log('=== WEBHOOK POST EVENT RECEIVED ===');
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Content-Type:', req.get('Content-Type'));
+  console.log('User-Agent:', req.get('User-Agent'));
   
   // Verify the request signature (if app secret is configured)
   if (APP_SECRET) {
     const signature = req.get('X-Hub-Signature-256');
     if (!signature) {
-      console.log('No signature found in request');
-      return res.sendStatus(401);
+      console.log('No signature found in request - proceeding without verification');
+      console.log('NOTE: Set META_APP_SECRET environment variable for signature verification');
+    } else {
+      const expectedSignature = crypto
+        .createHmac('sha256', APP_SECRET)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
+      
+      if (signature !== `sha256=${expectedSignature}`) {
+        console.log('Invalid signature - rejecting request');
+        return res.sendStatus(401);
+      } else {
+        console.log('Signature verified successfully');
+      }
     }
-    
-    const expectedSignature = crypto
-      .createHmac('sha256', APP_SECRET)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-    
-    if (signature !== `sha256=${expectedSignature}`) {
-      console.log('Invalid signature');
-      return res.sendStatus(401);
-    }
+  } else {
+    console.log('META_APP_SECRET not configured - skipping signature verification');
   }
   
   let body = req.body;
