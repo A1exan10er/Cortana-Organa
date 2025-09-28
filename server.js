@@ -27,6 +27,8 @@ app.get('/', (req, res) => {
 // Webhook verification (GET)
 app.get('/webhook', (req, res) => {
   console.log('Webhook verification request received');
+  console.log('Full query object:', req.query);
+  console.log('Request URL:', req.url);
   
   // Parse params from the webhook verification request
   let mode = req.query['hub.mode'];
