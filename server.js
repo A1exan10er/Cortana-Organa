@@ -3,6 +3,9 @@ const bodyParser = require('body-parser');
 const crypto = require('crypto');
 require('dotenv').config();
 
+// Use built-in fetch (Node.js 18+) or fallback to node-fetch
+const fetch = globalThis.fetch || require('node-fetch');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'your_unique_verify_token_12345';
@@ -97,10 +100,15 @@ app.post('/webhook', (req, res) => {
       }
       
       if (entry.changes) {
-        // Instagram/Facebook Page events
+        // Instagram/Facebook Page events or WhatsApp Business API
         entry.changes.forEach(function(change) {
           console.log('Page change event:', change);
-          handlePageChangeEvent(change);
+          if (change.field === 'messages') {
+            // Handle WhatsApp messages
+            handleWhatsAppEvent(change.value);
+          } else {
+            handlePageChangeEvent(change);
+          }
         });
       }
     });
@@ -150,6 +158,132 @@ function handlePageChangeEvent(change) {
     default:
       console.log('Unhandled field:', field, value);
   }
+}
+
+// Handle WhatsApp Business API events
+async function handleWhatsAppEvent(value) {
+  console.log('WhatsApp event received:', JSON.stringify(value, null, 2));
+  
+  // Check if there are messages in the webhook
+  if (value.messages && value.messages.length > 0) {
+    const message = value.messages[0];
+    const from = message.from; // Phone number of sender
+    const messageType = message.type;
+    
+    console.log(`WhatsApp message from ${from}, type: ${messageType}`);
+    
+    // Handle different message types
+    if (messageType === 'text') {
+      const userMessage = message.text.body;
+      console.log(`Text message: "${userMessage}"`);
+      
+      // Generate and send response
+      await sendWhatsAppResponse(from, userMessage);
+    } else if (messageType === 'image') {
+      console.log('Received image message');
+      await sendWhatsAppResponse(from, 'Thanks for the image! 📸');
+    } else if (messageType === 'document') {
+      console.log('Received document message');
+      await sendWhatsAppResponse(from, 'Thanks for the document! 📄');
+    } else {
+      console.log(`Received ${messageType} message`);
+      await sendWhatsAppResponse(from, 'Thanks for your message! 👍');
+    }
+  }
+  
+  // Handle message status updates (delivered, read, etc.)
+  if (value.statuses && value.statuses.length > 0) {
+    const status = value.statuses[0];
+    console.log(`Message status update: ${status.status} for message ${status.id}`);
+  }
+}
+
+// Send WhatsApp response message
+async function sendWhatsAppResponse(to, userMessage) {
+  const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+  const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  
+  if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+    console.error('WhatsApp credentials not configured');
+    return;
+  }
+  
+  // Generate intelligent response based on user message
+  const responseMessage = generateResponse(userMessage);
+  
+  const messageData = {
+    messaging_product: 'whatsapp',
+    to: to,
+    type: 'text',
+    text: {
+      body: responseMessage
+    }
+  };
+  
+  try {
+    const response = await fetch(`https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(messageData)
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      console.log('WhatsApp message sent successfully:', result);
+    } else {
+      console.error('Failed to send WhatsApp message:', result);
+    }
+  } catch (error) {
+    console.error('Error sending WhatsApp message:', error);
+  }
+}
+
+// Generate intelligent responses based on user input
+function generateResponse(userMessage) {
+  const message = userMessage.toLowerCase().trim();
+  
+  // Greeting responses
+  if (message.includes('hello') || message.includes('hi') || message.includes('hey')) {
+    return '👋 Hello! How can I help you today?';
+  }
+  
+  // Help/support requests
+  if (message.includes('help') || message.includes('support')) {
+    return '🆘 I\'m here to help! You can ask me questions or just chat. What would you like to know?';
+  }
+  
+  // Thank you responses
+  if (message.includes('thank') || message.includes('thanks')) {
+    return '😊 You\'re welcome! Is there anything else I can help you with?';
+  }
+  
+  // Goodbye responses
+  if (message.includes('bye') || message.includes('goodbye') || message.includes('see you')) {
+    return '👋 Goodbye! Feel free to message me anytime!';
+  }
+  
+  // Time/date requests
+  if (message.includes('time') || message.includes('date')) {
+    const now = new Date();
+    return `🕒 Current time: ${now.toLocaleString()}`;
+  }
+  
+  // Weather requests (mock response)
+  if (message.includes('weather')) {
+    return '🌤️ I don\'t have real-time weather data, but I hope it\'s a beautiful day where you are!';
+  }
+  
+  // Business hours
+  if (message.includes('hours') || message.includes('open')) {
+    return '🕐 We\'re available 24/7 through this WhatsApp bot! How can I assist you?';
+  }
+  
+  // Default response with echo
+  return `I received your message: "${userMessage}"\n\n🤖 This is an automated response. How can I help you further?`;
 }
 
 // Error handling middleware
