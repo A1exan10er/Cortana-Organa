@@ -30,15 +30,27 @@ app.get('/', (req, res) => {
 // Webhook verification (GET)
 app.get('/webhook', (req, res) => {
   console.log('Webhook verification request received');
-  console.log('Full query object:', req.query);
+  console.log('Request method:', req.method);
   console.log('Request URL:', req.url);
+  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Full query object:', req.query);
+  console.log('Raw query string:', req.url.split('?')[1] || 'No query string');
   
   // Parse params from the webhook verification request
   let mode = req.query['hub.mode'];
   let token = req.query['hub.verify_token'];
   let challenge = req.query['hub.challenge'];
   
-  console.log('Verification details:', { mode, token, challenge });
+  console.log('Parsed verification details:', { mode, token, challenge });
+  
+  // If no query parameters, this might be a health check
+  if (!req.url.includes('?')) {
+    console.log('No query parameters - likely a health check request');
+    return res.status(200).json({
+      status: 'Webhook endpoint is ready for verification',
+      message: 'Send GET request with hub.mode, hub.verify_token, and hub.challenge parameters'
+    });
+  }
   
   // Check if a token and mode were sent
   if (mode && token) {
